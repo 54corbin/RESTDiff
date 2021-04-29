@@ -50,7 +50,7 @@ func compare(lj string, rj string, outPath string){
 		fmt.Printf("error：%s\n",err)
 	}
 	b,err2 := jd.ReadJsonString(rj)
-
+	ioutil.WriteFile(report, []byte(diff), 0644)
 }
 
 func main() {
