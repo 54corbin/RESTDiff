@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"bytes"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -51,9 +50,6 @@ func readLine(reader *bufio.Reader) (string, error) {
  *比较两个json字符串并将结果存入 outPath指定的文件
 **/
 func compare(lj string, rj string, outPath string) {
-	//添加 -set 参数指明待比较json中的数组是无序的
-	// metadata := make([]jd.Metadata, 0)
-	// metadata = append(metadata, jd.SET)
 
 	a, err := jd.ReadJsonString(lj)
 	if nil != err {
@@ -64,23 +60,39 @@ func compare(lj string, rj string, outPath string) {
 		fmt.Printf("error：%s\n", err2)
 	}
 
-	// diff := a.Diff(b, metadata...).Render()
-	diff := a.Diff(b).Render()
+
+	var diff string
+	if *set {
+		//添加 -set 参数指明待比较json中的数组是无序的
+		metadata := make([]jd.Metadata, 0)
+		metadata = append(metadata, jd.SET)
+		diff = a.Diff(b, metadata...).Render()
+	} else {
+		diff = a.Diff(b).Render()
+	}
+
 	ioutil.WriteFile(outPath, []byte(diff), 0644)
 	fmt.Println("写入对比结果:", outPath)
 }
 
+
+var set = flag.Bool("set", false, "指明待比较json中的数组是有序的")
+var file = flag.String("f", "", "存储curl命令的文件路径")
+
 func main() {
 
-	var b = flag.Bool("b", false, "")
+
 	flag.Parse()
-	fmt.Println("-b",*b)
 
-	os.Exit(2)
+	if *file == "" {
+		fmt.Println("请用 -f 指定 存放curl 命令的文件")
+		os.Exit(-1)
+	}
 
-	f, err := os.Open("requests.txt")
+	f, err := os.Open(*file)
 	if err != nil {
-		fmt.Printf("open file failed:%s", err)
+		fmt.Printf("Failed to open file [%s]:%s",*file, err)
+		os.Exit(-1)
 	}
 	defer f.Close()
 
