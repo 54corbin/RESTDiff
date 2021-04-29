@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -49,8 +50,9 @@ func readLine(reader *bufio.Reader) (string, error) {
  *比较两个json字符串并将结果存入 outPath指定的文件
 **/
 func compare(lj string, rj string, outPath string) {
-	metadata := make([]jd.Metadata, 0)
-	metadata = append(metadata, jd.SET)
+	//添加 -set 参数指明待比较json中的数组是无序的
+	// metadata := make([]jd.Metadata, 0)
+	// metadata = append(metadata, jd.SET)
 
 	a, err := jd.ReadJsonString(lj)
 	if nil != err {
@@ -61,12 +63,24 @@ func compare(lj string, rj string, outPath string) {
 		fmt.Printf("error：%s\n", err2)
 	}
 
-	diff := a.Diff(b, metadata...).Render()
+	// diff := a.Diff(b, metadata...).Render()
+	diff := a.Diff(b).Render()
 	ioutil.WriteFile(outPath, []byte(diff), 0644)
 	fmt.Println("写入对比结果:", outPath)
 }
 
 func main() {
+
+	jstr := `{"c":12,"b":["c","a",5,2,1,{"w":12,"f":6}],"a":45}`
+	fmt.Println(jstr)
+	var jso map[string]interface{}
+	json.Unmarshal([]byte(jstr), &jso)
+	fmt.Println(jso)
+	r, _ := json.Marshal(jso)
+	fmt.Print(string(r))
+	if true {
+		os.Exit(0)
+	}
 
 	f, err := os.Open("requests.txt")
 	if err != nil {
