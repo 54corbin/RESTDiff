@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -12,7 +11,7 @@ import (
 	"strings"
 
 	"github.com/antlabs/pcurl"
-	"github.com/yazgazan/jaydiff/diff"
+	jd "github.com/josephburnett/jd/lib"
 )
 
 func curlReq(cmd string) []byte {
@@ -34,6 +33,26 @@ func curlReq(cmd string) []byte {
 	return body
 }
 
+/**
+  *从reader里读取一行
+ **/
+func readLine( reader *bufio.Reader)(string, error){
+	line, err := reader.ReadBytes('\n')
+	line = bytes.TrimRight(line, "\r\n")
+	return string(line),err
+
+}
+
+func compare(lj string, rj string, outPath string){
+
+	a,err := jd.ReadJsonString(lj)
+	if nil != err {
+		fmt.Printf("error：%s\n",err)
+	}
+	b,err2 := jd.ReadJsonString(rj)
+
+}
+
 func main() {
 
 	f, err := os.Open("requests.txt")
@@ -43,47 +62,30 @@ func main() {
 	defer f.Close()
 
 	br := bufio.NewReader(f)
+
+	var count int32
 	for {
-		line, err := br.ReadBytes('\n')
-		line = bytes.TrimRight(line, "\r\n")
+		leftReq, err := readLine(br)
 		if err != nil && err == io.EOF {
+			fmt.Println("end of file....done")
 			break
 		}
-		lineStr := string(line)
-		// fmt.Println(lineStr)
+		// fmt.Println()
 
-		if strings.HasPrefix(lineStr, "curl") {
-			resp := curlReq(lineStr)
-			// fmt.Println(resp)
-
-			var lhs interface{}
-			var rhs interface{}
-
-			fmt.Println("unmarshal response.......")
-			if err := json.Unmarshal(resp, &lhs); nil != err {
-
-				fmt.Printf("unmarshal failed:%s", err)
-				if e, ok := err.(*json.SyntaxError); ok {
-					fmt.Printf("\nsyntax error at %d", e.Offset)
-
-					for i, c := range resp {
-						fmt.Println(i, c)
-
-					}
-				}
+		if strings.HasPrefix(leftReq, "curl") {
+			rightReq, _ := readLine(br)
+			//两条curl命令见不能有间隔
+			if !strings.HasPrefix(rightReq, "curl") {
+				fmt.Println("文件格式错误 at:"+leftReq)
 			}
 
-			json.Unmarshal(resp, &rhs)
+			leftResp := curlReq(leftReq)
+			rightResp := curlReq(rightReq)
 
-			fmt.Println(lhs)
-			fmt.Println(rhs)
+			outPath := "./reort"+string(count)+".txt"
 
-			differ, err := diff.Diff(lhs,rhs,nil)
-			if nil != err{
+			compare(string(leftResp),string(rightResp),outPath)
 
-				fmt.Println(err)
-			}
-			fmt.Println(differ)
 		}
 	}
 
