@@ -30,27 +30,40 @@ func curlReq(cmd string) []byte {
 
 	defer resp.Body.Close()
 	body, err := ioutil.ReadAll(resp.Body)
+
+	fmt.Printf("\n%s\nVVVVVVVVVVVVVVVVVVVVVV\n%s\n\n", cmd, string(body))
 	return body
 }
 
 /**
-  *从reader里读取一行
- **/
-func readLine( reader *bufio.Reader)(string, error){
+ *从reader里读取一行
+**/
+func readLine(reader *bufio.Reader) (string, error) {
 	line, err := reader.ReadBytes('\n')
 	line = bytes.TrimRight(line, "\r\n")
-	return string(line),err
+	return string(line), err
 
 }
 
-func compare(lj string, rj string, outPath string){
+/**
+ *比较两个json字符串并将结果存入 outPath指定的文件
+**/
+func compare(lj string, rj string, outPath string) {
+	metadata := make([]jd.Metadata, 0)
+	metadata = append(metadata, jd.SET)
 
-	a,err := jd.ReadJsonString(lj)
+	a, err := jd.ReadJsonString(lj)
 	if nil != err {
-		fmt.Printf("error：%s\n",err)
+		fmt.Printf("error：%s\n", err)
 	}
-	b,err2 := jd.ReadJsonString(rj)
-	ioutil.WriteFile(report, []byte(diff), 0644)
+	b, err2 := jd.ReadJsonString(rj)
+	if nil != err2 {
+		fmt.Printf("error：%s\n", err2)
+	}
+
+	diff := a.Diff(b, metadata...).Render()
+	ioutil.WriteFile(outPath, []byte(diff), 0644)
+	fmt.Println("写入对比结果:", outPath)
 }
 
 func main() {
@@ -63,7 +76,7 @@ func main() {
 
 	br := bufio.NewReader(f)
 
-	var count int32
+	var count int32 = 0
 	for {
 		leftReq, err := readLine(br)
 		if err != nil && err == io.EOF {
@@ -72,19 +85,25 @@ func main() {
 		}
 		// fmt.Println()
 
+		//检查是否是合法的curl命令
 		if strings.HasPrefix(leftReq, "curl") {
-			rightReq, _ := readLine(br)
+			rightReq, err := readLine(br)
 			//两条curl命令见不能有间隔
-			if !strings.HasPrefix(rightReq, "curl") {
-				fmt.Println("文件格式错误 at:"+leftReq)
+			if err != nil || !strings.HasPrefix(rightReq, "curl") {
+				fmt.Println(leftReq + " >>缺少对应命令")
+				os.Exit(-1)
 			}
 
+			//执行curl 命令 获取接口响应
 			leftResp := curlReq(leftReq)
 			rightResp := curlReq(rightReq)
 
-			outPath := "./reort"+string(count)+".txt"
+			count++
+			//构造对比结果文件
+			outPath := fmt.Sprintf("./report%d.txt", count)
 
-			compare(string(leftResp),string(rightResp),outPath)
+			//比较响应结果
+			compare(string(leftResp), string(rightResp), outPath)
 
 		}
 	}
