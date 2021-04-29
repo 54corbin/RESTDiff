@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -71,16 +72,11 @@ func compare(lj string, rj string, outPath string) {
 
 func main() {
 
-	jstr := `{"c":12,"b":["c","a",5,2,1,{"w":12,"f":6}],"a":45}`
-	fmt.Println(jstr)
-	var jso map[string]interface{}
-	json.Unmarshal([]byte(jstr), &jso)
-	fmt.Println(jso)
-	r, _ := json.Marshal(jso)
-	fmt.Print(string(r))
-	if true {
-		os.Exit(0)
-	}
+	var b = flag.Bool("b", false, "")
+	flag.Parse()
+	fmt.Println("-b",*b)
+
+	os.Exit(2)
 
 	f, err := os.Open("requests.txt")
 	if err != nil {
