@@ -4,11 +4,13 @@ import (
 	"bufio"
 	"bytes"
 	"container/list"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,6 +22,9 @@ import (
 )
 
 type command struct {
+	apiName string
+	//vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
+
 	leftCurl  string
 	leftParms *list.List
 	leftResp  *list.List
@@ -33,7 +38,6 @@ type command struct {
 	//vvvvvvvvvvvvvvvvvvv
 	report *list.List
 }
-
 
 var set = flag.Bool("set", false, "指明待比较json中的数组是有序的")
 
@@ -49,7 +53,7 @@ func main() {
 	}
 	f, err := os.Open(*file)
 	if err != nil {
-		fmt.Printf("Failed to open file [%s]:%s\n", *file, err)
+		fmt.Println(err)
 		os.Exit(-1)
 	}
 	defer f.Close()
@@ -63,26 +67,101 @@ func main() {
 	mwg.Add(cmds.Len())
 	progress := 0
 	for cmd := cmds.Front(); cmd != nil; cmd = cmd.Next() {
-
 		progress++
-
 		go func(cmdVal *command,p int32){
 			// fmt.Printf("%+v", cmdVal)
 			defer mwg.Done()
 			wg := new(sync.WaitGroup)
 			wg.Add(2)
+			fmt.Println("接口[",cmdVal.apiName,"]开始发起请求...")
 			go doBatchCurl(wg,cmdVal.leftParms,cmdVal.leftCurl,cmdVal.leftResp,cmdVal.leftDuration)
 			go doBatchCurl(wg,cmdVal.rightParms,cmdVal.rightCurl,cmdVal.rightResp,cmdVal.rightDuration)
 			wg.Wait()
-			fmt.Println("准备开始比较...")
+			fmt.Println("接口[",cmdVal.apiName,"]开始比对...")
 			doBatchCompare(cmdVal.leftResp, cmdVal.rightResp, cmdVal.report)
-			fmt.Printf("%d/%d\n",p,cmds.Len())
+			fmt.Printf("接口[%s] 处理完成...%d/%d\n",cmdVal.apiName,p,cmds.Len())
 		}((cmd.Value).(*command),int32(progress))
 
 	}
 
-	fmt.Println("mwg wait ....")
 	mwg.Wait()
+
+	//生成文件
+	for cmd := cmds.Front(); cmd != nil; cmd = cmd.Next() {
+		cmdval := (cmd.Value).(*command)
+		reportPath := fmt.Sprint(filepath.Dir(f.Name()), string(os.PathSeparator),cmdval.apiName )
+		os.Mkdir(reportPath, os.ModePerm)
+
+
+		leftResp := cmdval.leftResp.Front()
+		rightResp := cmdval.rightResp.Front()
+		leftParm := cmdval.leftParms.Front()
+		rightParm := cmdval.rightParms.Front()
+		leftDuration := cmdval.leftDuration.Front()
+		rightDuration := cmdval.rightDuration.Front()
+
+		if cmdval.leftResp.Len() != cmdval.rightResp.Len() || cmdval.leftDuration.Len() != cmdval.rightDuration.Len() || cmdval.leftResp.Len() != cmdval.rightDuration.Len(){
+			fmt.Printf("结果集大小不匹配(respL:%d,respR:%d,durationL:%d,durationR:%d) 无法生成报告!!!\n",cmdval.leftResp.Len(),cmdval.rightResp.Len(),cmdval.leftDuration.Len(),cmdval.rightDuration.Len())
+			os.Exit(-1)
+		}
+
+		for report := cmdval.report.Front();report != nil;report= report.Next(){
+
+			respName := "<"+strings.ReplaceAll(leftParm.Value.(string), " ","_" ) + "><"+strings.ReplaceAll(rightParm.Value.(string)," ","_")+">"
+			respFile := fmt.Sprint(reportPath, string(os.PathSeparator),respName,".txt" )
+
+			reportName := "report_<"+strings.ReplaceAll(leftParm.Value.(string), " ","_" ) + "><"+strings.ReplaceAll(rightParm.Value.(string)," ","_")+">"
+			reportFile := fmt.Sprint(reportPath, string(os.PathSeparator),reportName,".txt" )
+
+			fmt.Println("输出报告：",reportFile)
+			rep,err := os.Create(reportFile)
+			defer f.Close()
+			if err != nil{
+				fmt.Println(err)
+			}
+			rep.Write([]byte(report.Value.(string)))
+
+
+			fmt.Println("输出原始接口返回：",respFile)
+			res,err := os.Create(respFile)
+			defer f.Close()
+			if err != nil{
+				fmt.Println(err)
+			}
+
+			res.Write([]byte(fmt.Sprintf("=======================[耗时：%d ms]=============================\n",leftDuration.Value.(time.Duration).Milliseconds())))
+			//格式化json
+			var ltmp bytes.Buffer
+			err = json.Indent(&ltmp,[]byte(leftResp.Value.(string)), "", "\t")
+			if nil != err{
+				fmt.Print("格式化失败")
+				res.Write([]byte(leftResp.Value.(string)))
+			} else {
+
+				res.Write(ltmp.Bytes())
+			}
+
+			res.Write([]byte(fmt.Sprintf("\n\n=======================[耗时：%d ms]=============================\n",rightDuration.Value.(time.Duration).Milliseconds())))
+			//格式化json
+			var rtmp bytes.Buffer
+			err = json.Indent(&rtmp,[]byte(rightResp.Value.(string)), "", "\t")
+			if nil != err{
+				fmt.Print("格式化失败")
+				res.Write([]byte(rightResp.Value.(string)))
+			} else {
+				res.Write(rtmp.Bytes())
+			}
+
+			rightResp = rightResp.Next()
+			leftResp = leftResp.Next()
+			leftParm = leftParm.Next()
+			rightParm = rightParm.Next()
+			leftDuration = leftDuration.Next()
+			rightDuration = rightDuration.Next()
+		}
+
+	}
+
 	fmt.Println("done....")
 
 }
@@ -90,7 +169,6 @@ func main() {
 //批量比较所有返回结果
 func doBatchCompare(left *list.List,right *list.List,report *list.List){
 
-	fmt.Printf("%+v>====<%+v\n",*left,*right)
 	if nil == left || nil == right || left.Len() != right.Len(){
 		fmt.Println("左右结果集大小不匹配")
 		report.PushBack("左右结果集大小不匹配")
@@ -106,12 +184,10 @@ func doBatchCompare(left *list.List,right *list.List,report *list.List){
 		}
 		diff := compare(leftEle.Value.(string), rightEle.Value.(string))
 
-		fmt.Print("比对结果",diff)
+		fmt.Println("比对结果",diff)
 		report.PushBack(diff)
 		rightEle = rightEle.Next()
 	}
-
-	fmt.Println(*report)
 
 }
 
@@ -123,25 +199,29 @@ func constructCmds(file *os.File) *list.List {
 
 	br := bufio.NewReader(file)
 
-	for count := 1; ; count++ {
+	for count := 0; ;  {
 
 		left, err := readLine(br)
+		count++
 		if err != nil && err == io.EOF {
-			// fmt.Println("end of file....done")
 			break
 		}
 
-		if !strings.Contains(left, "curl") || !strings.Contains(left, "@") {
+		//忽略井号#开头的
+		if !strings.Contains(left, "curl") || !strings.Contains(left, "@") || strings.HasPrefix(left, "#") {
 			continue
 		}
+		count++
 		right, err := readLine(br)
-		if (err != nil && err == io.EOF) || !strings.Contains(right, "curl") || !strings.Contains(right, "@") {
-			fmt.Println(left, " >>缺少格式正确的对应命令 行号：", count)
+		if (err != nil && err == io.EOF) || !strings.Contains(right, "curl") || 2 != strings.Count(left, "@")|| 2 != strings.Count(right, "@") {
+			fmt.Println(left, " >>格式不正确 行号：", count)
 			os.Exit(-1)
 		}
 
 		tmpL := strings.Split(left, "@")
 		tmpR := strings.Split(right, "@")
+
+		// fmt.Printf("%+v",tmpL)
 
 		cmd := new(command)
 		cmd.leftParms = list.New()
@@ -154,14 +234,15 @@ func constructCmds(file *os.File) *list.List {
 
 		cmd.report = list.New()
 
+		cmd.apiName = tmpL[0]
+		cmd.leftCurl = tmpL[2]
+		cmd.rightCurl = tmpR[2]
 
-		cmd.leftCurl = tmpL[1]
-		cmd.rightCurl = tmpR[1]
-		paramsFilePathL := fmt.Sprint(filepath.Dir(file.Name()), string(os.PathSeparator), tmpL[0], ".txt")
-		paramsFilePathR := fmt.Sprint(filepath.Dir(file.Name()), string(os.PathSeparator), tmpR[0], ".txt")
+		paramsFilePathL := fmt.Sprint(filepath.Dir(file.Name()), string(os.PathSeparator), tmpL[1], ".txt")
+		paramsFilePathR := fmt.Sprint(filepath.Dir(file.Name()), string(os.PathSeparator), tmpR[1], ".txt")
 		readParms(paramsFilePathL, cmd.leftParms)
 		readParms(paramsFilePathR, cmd.rightParms)
-		fmt.Printf("leftParm:%+v\nrightParm:%+v\n", *cmd.leftParms,*cmd.rightParms)
+		// fmt.Printf("leftParm:%+v\nrightParm:%+v\n", *cmd.leftParms,*cmd.rightParms)
 		cmds.PushBack(cmd)
 	}
 	return cmds
@@ -179,11 +260,18 @@ func doBatchCurl(wg *sync.WaitGroup, parms *list.List,curl string,respList *list
 
 		parms := strings.Split((parmLine.Value).(string), "@@")
 
+		tmpCurl := curl
 		for i, parm := range parms {
-			curl = strings.Replace(curl, "$$$", parm, i+1)
+			if strings.HasPrefix(parm, "encode:"){
+				parm = strings.TrimPrefix(parm, "encode:")
+				tmpCurl = strings.Replace(tmpCurl, "$$$", url.QueryEscape(parm), i+1)
+				continue
+			}
+
+			tmpCurl = strings.Replace(tmpCurl, "$$$", parm, i+1)
 		}
 
-		leftResp, ld := curlReq(curl)
+		leftResp, ld := curlReq(tmpCurl)
 		respList.PushBack(leftResp)
 		durationList.PushBack(ld)
 	}
@@ -191,7 +279,7 @@ func doBatchCurl(wg *sync.WaitGroup, parms *list.List,curl string,respList *list
 
 //将参数文件按行存入list
 func readParms(filePath string, li *list.List) {
-	fmt.Println("parm file path:",filePath)
+	fmt.Println("读取参数文件：",filePath)
 
 	f, err := os.Open(filePath)
 	defer f.Close()
@@ -213,14 +301,16 @@ func curlReq(cmd string) (string,time.Duration) {
 	start := time.Now()
 	req, err := pcurl.ParseAndRequest(cmd)
 	if err != nil {
-		fmt.Printf("err:%s\n", err)
-		return "",-1
+		fmt.Println(err)
+		es :=fmt.Sprintf("%v", err)
+		return es,0
 	}
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		fmt.Printf("err:%s\n", err)
-		return "",-1
+		fmt.Println(err)
+		es :=fmt.Sprintf("%v", err)
+		return es,0
 	}
 
 	duration := time.Since(start)
@@ -246,11 +336,15 @@ func compare(lj string, rj string) string {
 
 	a, err := jd.ReadJsonString(lj)
 	if nil != err {
-		fmt.Printf("error：%s\n", err)
+		es := fmt.Sprintf("%s\n\nerror：%s\n",lj, err)
+		fmt.Println(es)
+		return es
 	}
 	b, err2 := jd.ReadJsonString(rj)
 	if nil != err2 {
-		fmt.Printf("error：%s\n", err2)
+		es := fmt.Sprintf("%s\n\nerror：%s\n", rj,err)
+		fmt.Println(es)
+		return es
 	}
 
 	var diff string
@@ -264,7 +358,4 @@ func compare(lj string, rj string) string {
 	}
 
 	return diff
-
-	// ioutil.WriteFile(outPath, []byte(diff), 0644)
-	// fmt.Println("写入对比结果:", outPath)
 }
