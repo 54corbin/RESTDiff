@@ -49,7 +49,7 @@ func main() {
 	flag.Parse()
 
 	if *file == "" {
-		fmt.Println("请用 -f= 指定 存放curl 命令的文件")
+		fmt.Println("请用 -f 指定 存放curl 命令的文件")
 		os.Exit(-1)
 	}
 	f, err := os.Open(*file)
@@ -68,11 +68,24 @@ func main() {
 
 	mwg := new(sync.WaitGroup)
 	mwg.Add(cmds.Len())
+	execute(cmds, mwg)
+
+	//等待所有请求执行完毕
+	mwg.Wait()
+
+	//生成报告文件
+	generateReport(cmds, outPath, f)
+
+	fmt.Println("done....")
+
+}
+
+func execute(cmds *list.List, mwg *sync.WaitGroup) {
 	progress := 0
 	for cmd := cmds.Front(); cmd != nil; cmd = cmd.Next() {
 		progress++
 		go func(cmdVal *command, p int32) {
-			// fmt.Printf("%+v", cmdVal)
+
 			defer mwg.Done()
 			wg := new(sync.WaitGroup)
 			wg.Add(2)
@@ -86,13 +99,14 @@ func main() {
 		}((cmd.Value).(*command), int32(progress))
 
 	}
+}
 
-	mwg.Wait()
 
-	//生成文件
+//生成报告文件
+func generateReport(cmds *list.List, outPath *string, f *os.File) {
 	for cmd := cmds.Front(); cmd != nil; cmd = cmd.Next() {
 		cmdval := (cmd.Value).(*command)
-		reportPath := filepath.Join(*outPath,cmdval.apiName)
+		reportPath := filepath.Join(*outPath, cmdval.apiName)
 		os.Mkdir(reportPath, os.ModePerm)
 
 		leftResp := cmdval.leftResp.Front()
@@ -110,10 +124,10 @@ func main() {
 		for report := cmdval.report.Front(); report != nil; report = report.Next() {
 
 			respName := strings.ReplaceAll(leftParm.Value.(string), " ", "_") + "_" + strings.ReplaceAll(rightParm.Value.(string), " ", "_")
-			respFile := filepath.Join(reportPath,respName+".txt")
+			respFile := filepath.Join(reportPath, respName+".txt")
 
-			reportName := "report@" + strings.ReplaceAll(leftParm.Value.(string), " ", "_") + "_" + strings.ReplaceAll(rightParm.Value.(string), " ", "_")
-			reportFile := filepath.Join(reportPath,reportName+".txt")
+			reportName :=  strings.ReplaceAll(leftParm.Value.(string), " ", "_") + "_" + strings.ReplaceAll(rightParm.Value.(string), " ", "_")+"@report"
+			reportFile := filepath.Join(reportPath, reportName+".txt")
 			reportFile = strings.ReplaceAll(reportFile, "@@", "")
 			reportFile = strings.ReplaceAll(reportFile, "encode", "")
 
@@ -132,8 +146,8 @@ func main() {
 				fmt.Println(err)
 			}
 
-			res.Write([]byte(fmt.Sprintf("=======================[耗时：%d ms]=============================\n", leftDuration.Value.(time.Duration).Milliseconds())))
-			//格式化json
+			res.Write([]byte(fmt.Sprintf("=======================[耗时：%d ms \t 参数:%s]=============================\n", leftDuration.Value.(time.Duration).Milliseconds(),leftParm.Value.(string))))
+
 			var ltmp bytes.Buffer
 			err = json.Indent(&ltmp, []byte(leftResp.Value.(string)), "", "\t")
 			if nil != err {
@@ -144,8 +158,8 @@ func main() {
 				res.Write(ltmp.Bytes())
 			}
 
-			res.Write([]byte(fmt.Sprintf("\n\n=======================[耗时：%d ms]=============================\n", rightDuration.Value.(time.Duration).Milliseconds())))
-			//格式化json
+			res.Write([]byte(fmt.Sprintf("\n\n=======================[耗时：%d ms \t 参数:%s]=============================\n", rightDuration.Value.(time.Duration).Milliseconds(),rightParm.Value.(string))))
+
 			var rtmp bytes.Buffer
 			err = json.Indent(&rtmp, []byte(rightResp.Value.(string)), "", "\t")
 			if nil != err {
@@ -164,9 +178,6 @@ func main() {
 		}
 
 	}
-
-	fmt.Println("done....")
-
 }
 
 //批量比较所有返回结果
