@@ -141,6 +141,7 @@ func jsonDiffList(json1, json2 []interface{}, depth int, diff *JsonDiff) {
 	diff.Result = diff.Result + "\n" + blank + "]"
 }
 
+//用文本相似性算法将两个数组的顺序调整为一一对应
 func order(json2 *[]interface{}, json1 *[]interface{}) {
 
 	less := json1
