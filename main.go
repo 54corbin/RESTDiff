@@ -272,7 +272,14 @@ func constructCmds(file *os.File) *list.List {
 		paramsFilePathR := fmt.Sprint(filepath.Dir(file.Name()), string(os.PathSeparator), tmpR[1], ".txt")
 		readParms(paramsFilePathL, cmd.leftParms)
 		readParms(paramsFilePathR, cmd.rightParms)
-		// fmt.Printf("leftParm:%+v\nrightParm:%+v\n", *cmd.leftParms,*cmd.rightParms)
+
+		cmd.rightParms.Len()
+		if cmd.leftParms.Len() != cmd.rightParms.Len(){
+			fmt.Printf("参数文件有数量不相等，参数文件L：%s\t参数文件R:%s\n",tmpL[1],tmpR[1])
+			os.Exit(-1)
+		}
+
+
 		cmds.PushBack(cmd)
 	}
 	return cmds
@@ -301,8 +308,8 @@ func doBatchCurl(wg *sync.WaitGroup, parms *list.List, curl string, respList *li
 			tmpCurl = strings.Replace(tmpCurl, "$$$", parm, i+1)
 		}
 
-		leftResp, ld := curlReq(tmpCurl)
-		respList.PushBack(leftResp)
+		resp, ld := curlReq(tmpCurl)
+		respList.PushBack(resp)
 		durationList.PushBack(ld)
 	}
 }
